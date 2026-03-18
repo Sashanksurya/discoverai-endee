@@ -59,10 +59,10 @@ Endee will be available at `http://localhost:8080`.
 pip install -r requirements.txt
 ```
 
-### 3. Set Your Anthropic API Key
+### 3. Set Your API Key
 
 ```bash
-export ANTHROPIC_API_KEY=your_key_here
+export  _API_KEY=your_key_here
 ```
 
 ### 4. Seed the Vector Database
@@ -121,7 +121,7 @@ endee-agent/
 ## 🏗️ How It Works
 
 ### Step 1 — Planner Agent
-Receives the user query and uses Claude to:
+Receives the user query and uses  to:
 - Understand the mood, genre, themes, and intent
 - Rewrite it as a rich descriptive query optimised for vector search
 
@@ -132,7 +132,7 @@ Receives the user query and uses Claude to:
 4. Returns structured results with full metadata
 
 ### Step 3 — Synthesis Agent
-Receives the results and uses Claude to:
+Receives the results and uses AI Agent to:
 - Rank and present the most relevant movies
 - Write a natural language recommendation explaining *why* each film matches
 - Add director/genre context for discovery
@@ -158,7 +158,7 @@ Each movie stored includes:
 
 - Docker & Docker Compose (for Endee)
 - Python 3.9+
-- Anthropic API key (for Claude)
+- API key (for AI Agent)
 
 ---
 
