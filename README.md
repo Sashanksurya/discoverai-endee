@@ -4,9 +4,20 @@
 
 ---
 
-## 🧠 Project Overview
+## 🧠 Project Overview & Problem Statement
 
-DiscoverAI is a multi-agent AI system where a **Planner Agent** interprets the user's natural language request and refines it into an optimised semantic query, which a **Movie Agent** uses to search Endee, before a **Synthesis Agent** composes a natural-language recommendation response.
+Finding the right movie to watch is hard. Traditional keyword search fails to understand **mood, theme, and narrative style** — searching "dark thriller" returns everything tagged as thriller, not what actually *feels* dark and tense.
+
+**DiscoverAI** solves this using **semantic vector search**. Instead of matching keywords, it converts both movie descriptions and user queries into dense numerical vectors and finds movies that are *semantically closest* — meaning they share similar themes, tone, and narrative style — even if they share no common words.
+
+The system is built as a **multi-agent agentic workflow**:
+- A **Planner Agent** interprets what the user *really* means
+- A **Movie Agent** searches Endee's vector database semantically
+- A **Synthesis Agent** explains *why* each movie matches
+
+---
+
+## 🏗️ System Design & Technical Approach
 
 ### Architecture
 
@@ -15,43 +26,79 @@ User Query
     │
     ▼
 ┌─────────────────────┐
-│   Planner Agent     │  ← Interprets intent, refines search query
+│   Planner Agent     │  ← Uses Groq LLaMA 3.3 to refine query
 └────────┬────────────┘
          │
          ▼
-    Movie Agent           ← Queries Endee with refined sub-query
+    Movie Agent           ← Embeds query → searches Endee
          │
     ┌────▼────────────┐
-    │  Endee Vector   │  ← Semantic similarity search (HNSW index)
-    │  Database       │
+    │  Endee Vector   │  ← HNSW semantic similarity search
+    │  Database       │     (cosine distance, INT8 precision)
     └─────────────────┘
          │
     ┌────▼────────────┐
-    │ Synthesis Agent │  ← Generates final natural-language response
+    │ Synthesis Agent │  ← Uses Groq LLaMA 3.3 to write response
     └─────────────────┘
          │
-    Movie Recommendations
+    🎬 Movie Recommendations
 ```
 
 ### Key Features
 
-- 🤖 **Agentic workflow** — Planner Agent interprets intent and refines the search query
-- 🔍 **Semantic search** — Natural language queries mapped to dense embeddings
+- 🤖 **Agentic workflow** — 3 specialized agents working in a pipeline
+- 🔍 **Semantic search** — Natural language mapped to 384-dim dense vectors
 - ⚡ **Endee vector DB** — High-performance HNSW indexing, up to 1B vectors
-- 🎬 **Movie-focused** — Rich metadata: genre, director, rating, year
+- 🆓 **Fully free** — Groq free tier + Endee cloud free tier
+- 🎬 **Rich metadata** — genre, director, rating, year stored alongside vectors
 - 🐍 **Pure Python** — Simple setup, easy to extend
+
+---
+
+## 🔧 How Endee Is Used
+
+Endee is the **core vector database** of this project. Here is exactly how it is integrated:
+
+### 1. Index Creation
+A single `movies` index is created in Endee cloud with these parameters:
+
+| Index    | Dimension | Space  | Precision | Algorithm |
+|----------|-----------|--------|-----------|-----------|
+| `movies` | 384       | cosine | INT8      | HNSW      |
+
+### 2. Data Ingestion (seed_data.py)
+Each movie's description is converted into a 384-dimensional vector using `sentence-transformers/all-MiniLM-L6-v2` and upserted into Endee along with metadata:
+
+```python
+client.create_index(name="movies", dimension=384, space_type="cosine", precision=Precision.INT8)
+index.upsert([{ "id": "mov_001", "vector": [...384 floats...], "meta": { "title": "Inception", ... } }])
+```
+
+### 3. Semantic Search (movie_agent.py)
+At query time, the user's refined query is embedded and sent to Endee which returns the top-K most similar movies using HNSW approximate nearest neighbor search:
+
+```python
+vector = embedder.embed("psychological thriller with a twist ending")
+results = index.query(vector=vector, top_k=5)
+```
+
+Endee returns results ranked by **cosine similarity** — movies whose semantic meaning is closest to the query.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Start Endee (Docker)
+### Prerequisites
+- Python 3.9+
+- [Groq API key](https://console.groq.com) (free)
+- [Endee cloud account](https://dapp.endee.io) (free)
+
+### 1. Clone the Repository
 
 ```bash
-docker compose up -d
+git clone https://github.com/Sashanksurya/discoverai-endee.git
+cd discoverai-endee
 ```
-
-Endee will be available at `http://localhost:8080`.
 
 ### 2. Install Python Dependencies
 
@@ -59,11 +106,22 @@ Endee will be available at `http://localhost:8080`.
 pip install -r requirements.txt
 ```
 
-### 3. Set Your API Key
+### 3. Create your `.env` file
 
 ```bash
-export  _API_KEY=your_key_here
+cp .env.example .env
 ```
+
+Fill in your keys:
+```
+GROQ_API_KEY=your_groq_api_key_here
+ENDEE_BASE_URL=https://your-cluster.endee.io/api/v1
+ENDEE_AUTH_TOKEN=your_endee_auth_token_here
+```
+
+- **GROQ_API_KEY** → [console.groq.com](https://console.groq.com) → API Keys → Create Key
+- **ENDEE_BASE_URL** → [dapp.endee.io](https://dapp.endee.io) → Your Project → Getting Started
+- **ENDEE_AUTH_TOKEN** → [dapp.endee.io](https://dapp.endee.io) → Auth Tokens → Create Token
 
 ### 4. Seed the Vector Database
 
@@ -71,7 +129,7 @@ export  _API_KEY=your_key_here
 python seed_data.py
 ```
 
-This creates the `movies` Endee index and loads sample data with embeddings.
+This creates the `movies` Endee index and loads 10 movies with embeddings.
 
 ### 5. Run the Agent
 
@@ -98,67 +156,55 @@ You: Something with a mind-bending plot and great cinematography.
 ## 📁 Project Structure
 
 ```
-endee-agent/
-├── docker-compose.yml      # Endee vector database
+discoverai-endee/
+├── docker-compose.yml      # Endee local setup (alternative to cloud)
 ├── requirements.txt        # Python dependencies
 ├── main.py                 # Entry point — interactive agent loop
 ├── seed_data.py            # Loads movie data into Endee
+├── .env.example            # Environment variable template
 ├── config/
-│   └── settings.py         # Configuration (Endee URL, model, etc.)
+│   └── settings.py         # Reads API keys from .env
 ├── agents/
-│   ├── planner.py          # Planner Agent — refines user queries
-│   ├── movie_agent.py      # Movie Agent — queries Endee
-│   └── synthesizer.py      # Synthesis Agent — final response generation
+│   ├── planner.py          # Planner Agent — refines user queries via Groq
+│   ├── movie_agent.py      # Movie Agent — queries Endee vector database
+│   └── synthesizer.py      # Synthesis Agent — writes recommendations via Groq
 ├── tools/
-│   ├── endee_client.py     # Endee vector DB wrapper
-│   └── embedder.py         # Text embedding utility
+│   ├── endee_client.py     # Endee Python SDK wrapper
+│   └── embedder.py         # Sentence-transformers embedding utility
 └── data/
-    └── sample_data.py      # Sample movie dataset
+    └── sample_data.py      # 10 movies with descriptions and metadata
 ```
 
 ---
 
-## 🏗️ How It Works
+## 🤖 Agent Details
 
-### Step 1 — Planner Agent
-Receives the user query and uses  to:
-- Understand the mood, genre, themes, and intent
-- Rewrite it as a rich descriptive query optimised for vector search
+### Planner Agent (`agents/planner.py`)
+- **Model**: Groq LLaMA 3.3 70B
+- **Input**: Raw user query (e.g. *"dark thriller"*)
+- **Output**: Rich semantic query (e.g. *"psychological thriller with complex morally ambiguous characters in a dark urban setting"*)
 
-### Step 2 — Movie Agent
-1. Takes the refined sub-query from the Planner
-2. Generates a dense 384-dim embedding via `sentence-transformers`
-3. Queries Endee's HNSW index for the top-K most similar movies
-4. Returns structured results with full metadata
+### Movie Agent (`agents/movie_agent.py`)
+- **Embedding**: `all-MiniLM-L6-v2` (384 dimensions)
+- **Search**: Endee HNSW cosine similarity, top-5 results
+- **Output**: Ranked list of movies with similarity scores and metadata
 
-### Step 3 — Synthesis Agent
-Receives the results and uses AI Agent to:
-- Rank and present the most relevant movies
-- Write a natural language recommendation explaining *why* each film matches
-- Add director/genre context for discovery
+### Synthesis Agent (`agents/synthesizer.py`)
+- **Model**: Groq LLaMA 3.3 70B
+- **Input**: User query + ranked movie results
+- **Output**: Natural language recommendation explaining why each film matches
 
 ---
 
-## 🔧 Endee Integration
+## 📦 Tech Stack
 
-One index is created:
-
-| Index    | Dimension | Space  | Precision |
-|----------|-----------|--------|-----------|
-| `movies` | 384       | cosine | INT8      |
-
-Each movie stored includes:
-- `id` — unique identifier
-- `vector` — 384-dim embedding from `all-MiniLM-L6-v2`
-- `meta` — title, director, genre, rating, year, description
-
----
-
-## 📦 Requirements
-
-- Docker & Docker Compose (for Endee)
-- Python 3.9+
-- API key (for AI Agent)
+| Component | Technology |
+|-----------|-----------|
+| Vector Database | Endee Cloud (HNSW, cosine, INT8) |
+| Embedding Model | sentence-transformers/all-MiniLM-L6-v2 |
+| LLM | Groq — LLaMA 3.3 70B (free tier) |
+| Language | Python 3.9+ |
+| SDK | endee, groq, sentence-transformers |
 
 ---
 
@@ -174,4 +220,4 @@ Pull requests are welcome! Ideas for extension:
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE)
+MIT License
